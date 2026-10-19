@@ -1,0 +1,50 @@
+name: Generate tight airplane baseline
+
+on:
+  push:
+    branches: [ci/tight-airplane-baseline-20261019]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    if: github.repository == 'tstotzer/pyvista'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      PYVISTA_OFF_SCREEN: "true"
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: pyvista/setup-headless-display-action@c103a2ff45650d38cb71684b5dc6cdfeb9442c79
+      - name: Install test dependencies
+        run: |
+          sudo apt-get install -y libosmesa6
+          python -m pip install --upgrade pip
+          python -m pip install -e . --group pinned --group test 'vtk==9.5.2'
+      - name: Record renderer versions
+        run: |
+          mkdir -p baseline-output
+          python -c "import platform; import pyvista as pv; import numpy as np; print(platform.platform()); print(platform.python_version()); print(pv.__version__); print(pv.vtk_version_info); print(np.__version__)" | tee baseline-output/versions.txt
+      - name: Generate the new reference only
+        run: |
+          python -m pytest tests/plotting/test_plotting.py::test_tight_airplane --image_cache_dir baseline-output/reference --add_missing_images --generated_image_dir baseline-output/corrected -q
+      - name: Verify the corrected camera against the reference
+        run: |
+          python -m pytest tests/plotting/test_plotting.py::test_tight_airplane --image_cache_dir baseline-output/reference --generated_image_dir baseline-output/verified -q
+      - name: Verify that the base camera fails image comparison
+        run: |
+          python baseline_probe.py baseline-output/reference baseline-output/base
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tight-airplane-linux-baseline
+          path: baseline-output
+          retention-days: 1
